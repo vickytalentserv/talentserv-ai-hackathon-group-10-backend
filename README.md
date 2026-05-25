@@ -20,6 +20,10 @@ uvicorn app.main:app --reload --port 8000
 | GET | `/health` | No | Health check |
 | GET | `/api/v1/me` | Bearer JWT | Current user profile |
 | POST | `/api/v1/data/ingest` | Admin key (dev: optional) | Load fallback CSV datasets |
+| POST | `/api/v1/data/upload` | Bearer JWT | Upload CSV/XLSX property data |
+| GET | `/api/v1/data/upload/templates/{dataset_type}` | No | Column template for uploads |
+| GET | `/api/v1/data/scrape/sources` | No | Supported live scrape portals |
+| POST | `/api/v1/data/scrape` | Bearer JWT | Scrape NoBroker/Housing/MagicBricks/99acres |
 | GET | `/api/v1/properties` | No | List/query ingested properties (filters: city, bedrooms, budget, intent, …) |
 | GET | `/api/v1/properties/{id}` | No | Get single property |
 | POST | `/api/v1/properties/match` | Optional JWT | Rank listings against parsed requirement (`text` or `requirement_id`) |

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Property
 from app.schemas import PropertyCsvRow
+from app.services.upload_parser import SUPPORTED_DATASET_TYPES, parse_upload_rows
 
 
 @dataclass
@@ -75,6 +76,40 @@ class IngestionService:
 
         return result
 
+    def ingest_upload(
+        self,
+        db: Session,
+        *,
+        filename: str,
+        content: bytes,
+        dataset_type: str = "properties",
+    ) -> FileIngestResult:
+        if dataset_type not in SUPPORTED_DATASET_TYPES:
+            return FileIngestResult(
+                filename=filename,
+                errors=[f"Unsupported dataset type '{dataset_type}'. Supported: {', '.join(sorted(SUPPORTED_DATASET_TYPES))}"],
+            )
+
+        try:
+            raw_rows = parse_upload_rows(filename, content)
+        except ValueError as exc:
+            return FileIngestResult(filename=filename, errors=[str(exc)])
+
+        if dataset_type == "properties":
+            return self._ingest_property_rows(db, filename, raw_rows)
+
+        return FileIngestResult(filename=filename, errors=[f"No handler for dataset type '{dataset_type}'"])
+
+    def ingest_property_records(
+        self,
+        db: Session,
+        *,
+        filename: str,
+        rows: list[PropertyCsvRow],
+    ) -> FileIngestResult:
+        raw_rows = [row.model_dump(mode="json") for row in rows]
+        return self._ingest_property_rows(db, filename, raw_rows)
+
     def ingest_file(self, db: Session, csv_path: Path) -> FileIngestResult:
         file_result = FileIngestResult(filename=csv_path.name)
 
@@ -88,21 +123,37 @@ class IngestionService:
                 file_result.errors.append("CSV file is missing a header row")
                 return file_result
 
-            validated_rows: list[PropertyCsvRow] = []
-            for line_number, raw_row in enumerate(reader, start=2):
-                file_result.rows_read += 1
-                try:
-                    validated_rows.append(PropertyCsvRow.model_validate(raw_row))
-                except ValidationError as exc:
-                    file_result.rows_skipped += 1
-                    file_result.errors.append(
-                        f"{csv_path.name}:{line_number} validation failed: {exc.errors()[0]['msg']}"
-                    )
+            raw_rows = [dict(row) for row in reader]
 
-            inserted, updated = self._bulk_upsert(db, validated_rows)
-            file_result.rows_inserted = inserted
-            file_result.rows_updated = updated
+        return self._ingest_property_rows(db, csv_path.name, raw_rows)
 
+    def _ingest_property_rows(
+        self,
+        db: Session,
+        filename: str,
+        raw_rows: list[dict[str, str | object | None]],
+    ) -> FileIngestResult:
+        file_result = FileIngestResult(filename=filename)
+        validated_rows: list[PropertyCsvRow] = []
+
+        for line_number, raw_row in enumerate(raw_rows, start=2):
+            file_result.rows_read += 1
+            try:
+                normalized = {
+                    str(key).strip(): "" if value is None else str(value).strip()
+                    for key, value in raw_row.items()
+                    if key is not None and str(key).strip()
+                }
+                validated_rows.append(PropertyCsvRow.model_validate(normalized))
+            except ValidationError as exc:
+                file_result.rows_skipped += 1
+                file_result.errors.append(
+                    f"{filename}:{line_number} validation failed: {exc.errors()[0]['msg']}"
+                )
+
+        inserted, updated = self._bulk_upsert(db, validated_rows)
+        file_result.rows_inserted = inserted
+        file_result.rows_updated = updated
         return file_result
 
     def _bulk_upsert(self, db: Session, rows: list[PropertyCsvRow]) -> tuple[int, int]:

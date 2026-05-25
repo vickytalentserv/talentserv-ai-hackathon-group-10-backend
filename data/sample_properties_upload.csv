@@ -1,0 +1,7 @@
+external_id,source,source_url,title,description,address,city,state,zip_code,price,bedrooms,bathrooms,square_feet,property_type,listing_status,latitude,longitude
+SAMPLE-001,housing,https://housing.com/in/sample/SAMPLE-001,2 BHK Ready Flat in Hinjewadi,Ready to move flat near IT park,"303 Megapolis Road, Hinjewadi",Pune,MH,411057,7900000,2,2.0,950,apartment,for_sale,18.591000,73.738000
+SAMPLE-002,magicbricks,https://www.magicbricks.com/sample/SAMPLE-002,Furnished 2 BHK in Andheri East,Semi-furnished with modular kitchen,"1204 Veera Desai Road, Andheri East",Mumbai,MH,400069,45000,2,2.0,980,apartment,for_rent,19.113000,72.869000
+SAMPLE-003,nobroker,https://www.nobroker.in/sample/SAMPLE-003,Koramangala 3 BHK Apartment,Spacious flat with balcony,"801 80 Feet Road, Koramangala",Bengaluru,KA,560034,9800000,3,3.0,1650,apartment,for_sale,12.935000,77.624000
+SAMPLE-004,99acres,https://www.99acres.com/sample/SAMPLE-004,Baner Premium 2 BHK,Clubhouse access and covered parking,"101 Baner Road, Baner",Pune,MH,411045,9500000,2,2.0,1150,flat,for_sale,18.559000,73.786000
+SAMPLE-005,housing,https://housing.com/in/sample/SAMPLE-005,Powai Lake View 3 BHK,High-rise with lake-facing balcony,"501 Hiranandani Gardens, Powai",Mumbai,MH,400076,16500000,3,2.5,1380,apartment,for_sale,19.119000,72.905000
+SAMPLE-006,nobroker,https://www.nobroker.in/sample/SAMPLE-006,Whitefield 1 BHK for Rent,Affordable rental near tech parks,"1204 ITPL Main Road, Whitefield",Bengaluru,KA,560066,32000,1,1.0,650,apartment,for_rent,12.969000,77.749000
