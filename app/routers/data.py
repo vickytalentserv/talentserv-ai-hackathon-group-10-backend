@@ -135,8 +135,10 @@ def list_scrape_sources() -> dict[str, object]:
     return {
         "sources": sorted(SUPPORTED_SCRAPE_SOURCES.keys()),
         "notes": [
+            "NoBroker uses the site JSON API directly; Housing uses Playwright in an isolated subprocess.",
+            "Install browsers once: playwright install chromium",
             "Scraping checks robots.txt and rate-limits requests.",
-            "Many listing sites block bots or require JavaScript — CSV upload remains the primary fallback.",
+            "Many listing sites block bots intermittently — CSV upload remains the primary fallback.",
             "See docs/COMPLIANCE.md for legal and ethical usage.",
         ],
     }
@@ -155,7 +157,14 @@ def scrape_live_listings(
         )
 
     ingestion = IngestionService(Path(settings.data_dir))
-    orchestrator = ScrapeOrchestrator(ingestion, delay_seconds=settings.scrape_delay_seconds)
+    orchestrator = ScrapeOrchestrator(
+        ingestion,
+        delay_seconds=settings.scrape_delay_seconds,
+        playwright_enabled=settings.scrape_playwright_enabled,
+        playwright_headless=settings.scrape_playwright_headless,
+        playwright_channel=settings.scrape_playwright_channel,
+        playwright_timeout_ms=settings.scrape_playwright_timeout_ms,
+    )
     listing_status = ListingStatus(payload.listing_status)
 
     result = orchestrator.run(

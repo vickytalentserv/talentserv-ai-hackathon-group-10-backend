@@ -44,7 +44,13 @@ class ComplianceGuard:
         parser = self._robot_parser(url)
         return parser.can_fetch(self.user_agent, url)
 
-    def fetch(self, url: str, *, timeout: float = 20.0) -> FetchResult:
+    def fetch(
+        self,
+        url: str,
+        *,
+        referer: str | None = None,
+        timeout: float = 20.0,
+    ) -> FetchResult:
         if not self.allowed(url):
             return FetchResult(
                 url=url,
@@ -63,6 +69,8 @@ class ComplianceGuard:
             "Accept": "text/html,application/json;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-IN,en;q=0.9",
         }
+        if referer:
+            headers["Referer"] = referer
 
         try:
             response = httpx.get(url, headers=headers, timeout=timeout, follow_redirects=True)

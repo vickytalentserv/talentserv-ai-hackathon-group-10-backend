@@ -52,8 +52,7 @@ class MatchingService:
                 has_filters = True
 
         if parsed.bedrooms is not None:
-            min_bedrooms = max(0, parsed.bedrooms - 1)
-            query = query.where(Property.bedrooms.between(min_bedrooms, parsed.bedrooms + 1))
+            query = query.where(Property.bedrooms == parsed.bedrooms)
             has_filters = True
 
         if parsed.city:
@@ -71,7 +70,7 @@ class MatchingService:
             )
             has_filters = True
 
-        if parsed.locality:
+        if parsed.locality and self._should_apply_locality_filter(parsed):
             locality_pattern = f"%{parsed.locality.strip()}%"
             query = query.where(
                 or_(
@@ -109,6 +108,21 @@ class MatchingService:
             return select(Property).order_by(Property.id.desc()).limit(CANDIDATE_LIMIT)
 
         return query.order_by(Property.id.desc()).limit(CANDIDATE_LIMIT)
+
+    def _should_apply_locality_filter(self, parsed: ParsedRequirement) -> bool:
+        if not parsed.locality:
+            return False
+
+        if not parsed.city:
+            return True
+
+        locality = parsed.locality.strip().lower()
+        city = parsed.city.strip().lower()
+        if locality == city:
+            return False
+
+        generic_suffixes = (" area", " region", " city", " limits", " vicinity")
+        return not any(locality == city + suffix for suffix in generic_suffixes)
 
     def match(
         self,

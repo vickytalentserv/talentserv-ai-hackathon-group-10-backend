@@ -10,10 +10,34 @@ from bs4 import BeautifulSoup
 from app.schemas.property import ListingStatus, PropertyCsvRow, PropertyType
 
 CITY_META = {
-    "pune": {"city": "Pune", "state": "MH", "pin": "411001"},
-    "mumbai": {"city": "Mumbai", "state": "MH", "pin": "400001"},
-    "bengaluru": {"city": "Bengaluru", "state": "KA", "pin": "560001"},
-    "bangalore": {"city": "Bengaluru", "state": "KA", "pin": "560001"},
+    "pune": {
+        "city": "Pune",
+        "state": "MH",
+        "pin": "411001",
+        "latitude": "18.5204",
+        "longitude": "73.8567",
+    },
+    "mumbai": {
+        "city": "Mumbai",
+        "state": "MH",
+        "pin": "400001",
+        "latitude": "19.0760",
+        "longitude": "72.8777",
+    },
+    "bengaluru": {
+        "city": "Bengaluru",
+        "state": "KA",
+        "pin": "560001",
+        "latitude": "12.9716",
+        "longitude": "77.5946",
+    },
+    "bangalore": {
+        "city": "Bengaluru",
+        "state": "KA",
+        "pin": "560001",
+        "latitude": "12.9716",
+        "longitude": "77.5946",
+    },
 }
 
 
@@ -50,7 +74,8 @@ def parse_price_inr(raw: str | int | float | None) -> Decimal | None:
 def parse_bhk(text: str | None) -> int:
     if not text:
         return 2
-    match = re.search(r"(\d+)\s*bhk", text.lower())
+    lowered = text.lower()
+    match = re.search(r"(\d+)\s*(?:bhk|rk)\b", lowered)
     return int(match.group(1)) if match else 2
 
 
@@ -113,6 +138,8 @@ def dict_to_property_row(
     city_meta: dict[str, str],
 ) -> PropertyCsvRow | None:
     title = str(payload.get("title") or payload.get("propertyTitle") or payload.get("name") or "").strip()
+    if title.lower() in {"view property", "view details"}:
+        return None
     if not title:
         return None
 
@@ -139,18 +166,40 @@ def dict_to_property_row(
     bathrooms_raw = payload.get("bathrooms") or payload.get("bathroom") or 2
     bathrooms = Decimal(str(bathrooms_raw))
 
-    sqft_raw = payload.get("square_feet") or payload.get("area") or payload.get("builtUpArea") or payload.get("carpetArea")
+    sqft_raw = (
+        payload.get("square_feet")
+        or payload.get("area")
+        or payload.get("builtUpArea")
+        or payload.get("carpetArea")
+        or payload.get("propertySize")
+    )
     square_feet = None
     if sqft_raw is not None:
         sqft_digits = re.sub(r"[^\d.]", "", str(sqft_raw))
         if sqft_digits:
             square_feet = int(float(sqft_digits))
 
-    source_url = str(payload.get("url") or payload.get("detailUrl") or payload.get("link") or "").strip()
-    if source_url and not source_url.startswith("http"):
-        source_url = ""
+    detail_url = str(payload.get("detailUrl") or "").strip()
+    raw_url = str(payload.get("url") or payload.get("link") or "").strip()
+    base = str(payload.get("base_url") or "").strip()
+
+    source_url = ""
+    for candidate in (detail_url, raw_url):
+        if not candidate or "/static/" in candidate:
+            continue
+        if candidate.startswith("/"):
+            source_url = f"{base.rstrip('/')}{candidate}" if base else ""
+        elif candidate.startswith("http"):
+            source_url = candidate
+        if source_url:
+            break
 
     property_type = infer_property_type(str(payload.get("propertyType") or title))
+
+    latitude = payload.get("latitude")
+    longitude = payload.get("longitude")
+    latitude_value = Decimal(str(latitude)) if latitude not in (None, "") else None
+    longitude_value = Decimal(str(longitude)) if longitude not in (None, "") else None
 
     return PropertyCsvRow(
         external_id=f"{source.upper()}-{external_id}"[:64],
@@ -168,9 +217,87 @@ def dict_to_property_row(
         square_feet=square_feet,
         property_type=property_type,
         listing_status=listing_status,
-        latitude=None,
-        longitude=None,
+        latitude=latitude_value,
+        longitude=longitude_value,
     )
+
+
+def parse_nobroker_api_listings(
+    listings: list[dict[str, Any]],
+    *,
+    listing_status: ListingStatus,
+    city_meta: dict[str, str],
+    base_url: str,
+) -> list[PropertyCsvRow]:
+    rows: list[PropertyCsvRow] = []
+    seen: set[str] = set()
+
+    for listing in listings:
+        if not isinstance(listing, dict):
+            continue
+        payload = dict(listing)
+        payload["base_url"] = base_url
+        row = dict_to_property_row(
+            payload,
+            source="nobroker",
+            listing_status=listing_status,
+            city_meta=city_meta,
+        )
+        if row and row.external_id not in seen:
+            seen.add(row.external_id)
+            rows.append(row)
+
+    return rows
+
+
+def parse_housing_recent_cards(
+    cards: list[dict[str, Any]],
+    *,
+    listing_status: ListingStatus,
+    city_meta: dict[str, str],
+    base_url: str,
+) -> list[PropertyCsvRow]:
+    rows: list[PropertyCsvRow] = []
+    seen: set[str] = set()
+
+    for card in cards:
+        if not isinstance(card, dict):
+            continue
+        href = str(card.get("href") or "").strip()
+        text = str(card.get("text") or "").strip()
+        if not href or not text:
+            continue
+
+        parts = [part.strip() for part in text.split("|") if part.strip()]
+        if len(parts) < 3:
+            continue
+
+        title = parts[0]
+        locality = parts[2].removesuffix(", Pune").removesuffix(f", {city_meta['city']}")
+        price_text = parts[3] if len(parts) > 3 else ""
+        if not price_text or price_text.lower() == "contact":
+            continue
+
+        id_match = re.search(r"/rent/(\d+)-", href) or re.search(r"/buy/(\d+)-", href)
+        external_id = id_match.group(1) if id_match else href.rsplit("/", 1)[-1]
+
+        row = dict_to_property_row(
+            {
+                "id": external_id,
+                "title": title,
+                "locality": locality,
+                "formattedPrice": price_text,
+                "url": href if href.startswith("http") else f"{base_url.rstrip('/')}{href}",
+            },
+            source="housing",
+            listing_status=listing_status,
+            city_meta=city_meta,
+        )
+        if row and row.external_id not in seen:
+            seen.add(row.external_id)
+            rows.append(row)
+
+    return rows
 
 
 def parse_cards_from_html(
@@ -210,6 +337,110 @@ def parse_cards_from_html(
             city_meta=city_meta,
         )
         if row:
+            rows.append(row)
+
+    rows.extend(
+        parse_listing_links_from_html(
+            html,
+            source=source,
+            listing_status=listing_status,
+            city_meta=city_meta,
+            base_url=base_url,
+        )
+    )
+    return rows
+
+
+def parse_housing_recent_cards_from_html(
+    html: str,
+    *,
+    listing_status: ListingStatus,
+    city_meta: dict[str, str],
+    base_url: str,
+) -> list[PropertyCsvRow]:
+    soup = BeautifulSoup(html, "html.parser")
+    cards: list[dict[str, str]] = []
+    for anchor in soup.select('a[class*="recentlyAddedCardStyle"]'):
+        href = str(anchor.get("href") or "").strip()
+        text = anchor.get_text("|", strip=True)
+        if href and text:
+            cards.append({"href": href, "text": text})
+    return parse_housing_recent_cards(
+        cards,
+        listing_status=listing_status,
+        city_meta=city_meta,
+        base_url=base_url,
+    )
+
+
+def parse_listing_links_from_html(
+    html: str,
+    *,
+    source: str,
+    listing_status: ListingStatus,
+    city_meta: dict[str, str],
+    base_url: str,
+) -> list[PropertyCsvRow]:
+    """Parse listing cards linked via property detail URLs (MagicBricks-style markup)."""
+    soup = BeautifulSoup(html, "html.parser")
+    rows: list[PropertyCsvRow] = []
+    seen: set[str] = set()
+
+    for link in soup.select('a[href*="propertyDetails"], a[href*="/property/"]'):
+        href = str(link.get("href") or "").strip()
+        if not href or href.startswith("#"):
+            continue
+        if href.startswith("/"):
+            href = base_url.rstrip("/") + href
+
+        id_match = re.search(r"[?&]id=([^&]+)", href)
+        external_id = id_match.group(1) if id_match else href.rsplit("/", 1)[-1]
+
+        title = None
+        price_text = None
+        container = link
+        for _ in range(8):
+            if container is None:
+                break
+            text = container.get_text(" ", strip=True)
+            if not title:
+                title_match = re.search(
+                    r"\d+\s*BHK[^.₹]{0,120}(?:in|at|on)\s+[^.₹]{3,80}",
+                    text,
+                    re.I,
+                )
+                if title_match:
+                    title = title_match.group(0).strip()
+            price_match = re.search(r"₹[\d,]+(?:\s*/\s*month)?", text)
+            if price_match:
+                price_text = price_match.group(0)
+                if title:
+                    break
+            container = container.parent
+
+        if not title:
+            slug_match = re.search(r"/propertyDetails/([^?&]+)", href)
+            if slug_match:
+                title = slug_match.group(1).replace("-", " ")[:255]
+            else:
+                continue
+
+        if not price_text:
+            continue
+
+        row = dict_to_property_row(
+            {
+                "id": external_id,
+                "title": title,
+                "formattedPrice": price_text,
+                "url": href,
+            },
+            source=source,
+            listing_status=listing_status,
+            city_meta=city_meta,
+        )
+        if row and row.external_id not in seen:
+            seen.add(row.external_id)
             rows.append(row)
 
     return rows

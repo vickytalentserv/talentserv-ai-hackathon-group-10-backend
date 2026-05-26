@@ -127,6 +127,10 @@ class ParserService:
         r"\b(?:in|near|around|at)\s+([A-Za-z][A-Za-z\s]{1,40}?)(?:\s+under|\s+between|\s+for|\s+with|$)",
         re.I,
     )
+    GENERIC_LOCATION_SUFFIX = re.compile(
+        r"\s+(?:area|region|city|limits|vicinity)\s*$",
+        re.I,
+    )
 
     def parse(self, text: str) -> ParsedRequirement:
         normalized = " ".join(text.strip().split())
@@ -233,16 +237,24 @@ class ParserService:
         if result.locality is None:
             match = self.IN_LOCALITY_PATTERN.search(text)
             if match:
-                candidate = match.group(1).strip(" .,")
+                candidate = self._normalize_location_phrase(match.group(1).strip(" .,"))
                 candidate_key = candidate.lower()
-                if candidate_key in KNOWN_LOCALITIES:
+                if candidate_key in KNOWN_CITIES:
+                    result.city = KNOWN_CITIES[candidate_key]
+                elif candidate_key in KNOWN_LOCALITIES:
                     result.locality = KNOWN_LOCALITIES[candidate_key]
                     if result.city is None:
                         result.city = LOCALITY_TO_CITY.get(candidate_key)
                 elif candidate_key not in KNOWN_CITIES and len(candidate.split()) <= 4:
-                    result.locality = candidate.title()
-                    if result.city is None:
-                        result.city = LOCALITY_TO_CITY.get(candidate_key)
+                    if result.city and candidate_key == result.city.lower():
+                        pass
+                    else:
+                        result.locality = candidate.title()
+                        if result.city is None:
+                            result.city = LOCALITY_TO_CITY.get(candidate_key)
+
+    def _normalize_location_phrase(self, phrase: str) -> str:
+        return self.GENERIC_LOCATION_SUFFIX.sub("", phrase.strip()).strip()
 
     def _apply_property_type(self, text: str, result: ParsedRequirement) -> None:
         for property_type, pattern in PROPERTY_TYPE_PATTERNS:

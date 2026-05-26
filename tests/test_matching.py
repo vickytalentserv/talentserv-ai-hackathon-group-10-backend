@@ -123,6 +123,34 @@ def test_matches_locality_keyword(matcher: MatchingService) -> None:
     assert any("Locality match" in reason for reason in results[0].reasons)
 
 
+def test_build_candidate_query_uses_exact_bedrooms(matcher: MatchingService) -> None:
+    parsed = ParsedRequirement(
+        raw_text="2 BHK in Pune",
+        bedrooms=2,
+        city="Pune",
+    )
+    compiled = str(
+        matcher.build_candidate_query(parsed).compile(compile_kwargs={"literal_binds": True})
+    ).lower()
+
+    assert "between" not in compiled
+    assert "bedrooms = 2" in compiled or "properties.bedrooms = 2" in compiled
+
+
+def test_ignores_city_area_locality_filter(matcher: MatchingService) -> None:
+    parsed = ParsedRequirement(
+        raw_text="I want a 2BHK property in Pune area",
+        bedrooms=2,
+        city="Pune",
+        locality="Pune Area",
+    )
+    compiled = str(
+        matcher.build_candidate_query(parsed).compile(compile_kwargs={"literal_binds": True})
+    ).lower()
+
+    assert "pune area" not in compiled
+
+
 def test_ranks_higher_scores_first(matcher: MatchingService) -> None:
     parsed = ParsedRequirement(
         raw_text="2 BHK apartment in Mumbai",

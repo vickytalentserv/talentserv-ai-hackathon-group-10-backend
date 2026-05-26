@@ -107,8 +107,11 @@ class IngestionService:
         filename: str,
         rows: list[PropertyCsvRow],
     ) -> FileIngestResult:
-        raw_rows = [row.model_dump(mode="json") for row in rows]
-        return self._ingest_property_rows(db, filename, raw_rows)
+        file_result = FileIngestResult(filename=filename, rows_read=len(rows))
+        inserted, updated = self._bulk_upsert(db, rows)
+        file_result.rows_inserted = inserted
+        file_result.rows_updated = updated
+        return file_result
 
     def ingest_file(self, db: Session, csv_path: Path) -> FileIngestResult:
         file_result = FileIngestResult(filename=csv_path.name)
