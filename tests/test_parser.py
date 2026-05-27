@@ -69,8 +69,21 @@ def test_parses_k_suffix_budget(parser: ParserService) -> None:
     assert result.intent == "rent"
     assert result.bedrooms == 1
     assert result.budget_max == pytest.approx(500_000)
+    assert result.budget_currency == "INR"
     assert result.locality == "Whitefield"
     assert result.city == "Bengaluru"
+
+
+def test_parses_borivali_rent_budget_in_inr(parser: ParserService) -> None:
+    parser_without_llm = ParserService(openai_service=type("Off", (), {"is_enabled": lambda self: False})())
+    result = parser_without_llm.parse("2 BHK for rent in Borivali Mumbai under 40k")
+
+    assert result.intent == "rent"
+    assert result.bedrooms == 2
+    assert result.city == "Mumbai"
+    assert result.locality == "Borivali"
+    assert result.budget_max == pytest.approx(40_000)
+    assert result.budget_currency == "INR"
 
 
 def test_parses_city_area_without_locality(parser: ParserService) -> None:

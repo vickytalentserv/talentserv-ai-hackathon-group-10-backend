@@ -14,7 +14,13 @@ from app.services.scraping.parsers import (
 def test_parse_price_inr_lakh_and_crore() -> None:
     assert parse_price_inr("80 lakh") == Decimal("8000000")
     assert parse_price_inr("1.2 crore") == Decimal("12000000")
-    assert parse_price_inr("35000") == Decimal("35000")
+    assert parse_price_inr("35000", listing_status=ListingStatus.FOR_RENT) == Decimal("35000")
+
+
+def test_parse_price_inr_rejects_title_fragments() -> None:
+    assert parse_price_inr("2 BHK flat in Santacruz East, Mumbai", listing_status=ListingStatus.FOR_SALE) is None
+    assert parse_price_inr("2", listing_status=ListingStatus.FOR_SALE) is None
+    assert parse_price_inr("₹2", listing_status=ListingStatus.FOR_SALE) is None
 
 
 def test_parse_listing_links_from_html_magicbricks_style() -> None:

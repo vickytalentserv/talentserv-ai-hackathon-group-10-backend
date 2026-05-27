@@ -150,7 +150,14 @@ curl -X POST http://localhost:8000/api/v1/requirements/parse \
 pytest tests/test_parser.py
 ```
 
-Optional LLM enhancement: set `OPENAI_API_KEY` in `.env`.
+Optional OpenAI enhancement: set `OPENAI_API_KEY` in `.env`.
+
+When enabled, the backend uses OpenAI to:
+- improve natural-language query parsing (`rules+llm` in the parse response)
+- rerank the top property matches with clearer reasons (`source: database+llm`)
+
+Tune with `OPENAI_MATCH_RERANK`, `OPENAI_MATCH_RERANK_LIMIT`, and `OPENAI_ENABLED`.
+Check `/health` for `openai_enabled: true`.
 
 The rules parser understands phrases like `Pune area` as city scope (not a locality filter).
 

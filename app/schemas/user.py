@@ -20,3 +20,4 @@ class UserProfileSync(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     environment: str
+    openai_enabled: bool = False

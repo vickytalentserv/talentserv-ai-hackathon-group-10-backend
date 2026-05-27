@@ -9,6 +9,14 @@ from bs4 import BeautifulSoup
 
 from app.schemas.property import ListingStatus, PropertyCsvRow, PropertyType
 
+MIN_RENT_INR = Decimal("3000")
+MIN_SALE_INR = Decimal("100000")
+LISTING_TITLE_PATTERN = re.compile(
+    r"\d+\s*BHK[^.₹]{0,120}(?:in|at|on)\s+[^.₹]{3,80}",
+    re.I,
+)
+INR_PRICE_PATTERN = re.compile(r"₹[\d,]+(?:\s*/\s*month)?", re.I)
+
 CITY_META = {
     "pune": {
         "city": "Pune",
@@ -45,12 +53,44 @@ def normalize_city(city: str) -> dict[str, str]:
     return CITY_META.get(city.strip().lower(), {"city": city.title(), "state": "MH", "pin": "411001"})
 
 
-def parse_price_inr(raw: str | int | float | None) -> Decimal | None:
+def infer_city_from_text(*parts: str, fallback: str) -> str:
+    haystack = " ".join(part for part in parts if part).lower()
+    for key in sorted(CITY_META.keys(), key=len, reverse=True):
+        if re.search(rf"\b{re.escape(key)}\b", haystack):
+            return CITY_META[key]["city"]
+    return fallback
+
+
+def normalize_listing_title(title: str) -> str:
+    cleaned = " ".join(title.split())
+    match = LISTING_TITLE_PATTERN.search(cleaned)
+    if match:
+        return match.group(0).strip()[:255]
+    if len(cleaned) > 120:
+        return cleaned[:120].rsplit(" ", 1)[0][:255]
+    return cleaned[:255]
+
+
+def is_plausible_price(value: Decimal, listing_status: ListingStatus | None) -> bool:
+    if listing_status == ListingStatus.FOR_RENT:
+        return value >= MIN_RENT_INR
+    if listing_status == ListingStatus.FOR_SALE:
+        return value >= MIN_SALE_INR
+    return value >= MIN_RENT_INR or value >= MIN_SALE_INR
+
+
+def parse_price_inr(
+    raw: str | int | float | None,
+    *,
+    listing_status: ListingStatus | None = None,
+) -> Decimal | None:
     if raw is None:
         return None
     if isinstance(raw, (int, float)):
         value = Decimal(str(raw))
-        return value if value > 0 else None
+        if value <= 0 or not is_plausible_price(value, listing_status):
+            return None
+        return value
 
     text = str(raw).lower().replace(",", "").strip()
     if not text:
@@ -58,17 +98,29 @@ def parse_price_inr(raw: str | int | float | None) -> Decimal | None:
 
     crore = re.search(r"(\d+(?:\.\d+)?)\s*(?:crore|cr)\b", text)
     if crore:
-        return Decimal(crore.group(1)) * Decimal("10000000")
+        value = Decimal(crore.group(1)) * Decimal("10000000")
+        return value if is_plausible_price(value, listing_status) else None
 
     lakh = re.search(r"(\d+(?:\.\d+)?)\s*(?:lakh|lac|l)\b", text)
     if lakh:
-        return Decimal(lakh.group(1)) * Decimal("100000")
+        value = Decimal(lakh.group(1)) * Decimal("100000")
+        return value if is_plausible_price(value, listing_status) else None
+
+    inr_match = INR_PRICE_PATTERN.search(str(raw))
+    if inr_match:
+        digits = re.sub(r"[^\d.]", "", inr_match.group(0))
+        if digits:
+            value = Decimal(digits)
+            if value > 0 and is_plausible_price(value, listing_status):
+                return value
 
     digits = re.sub(r"[^\d.]", "", text)
     if not digits:
         return None
     value = Decimal(digits)
-    return value if value > 0 else None
+    if value <= 0 or not is_plausible_price(value, listing_status):
+        return None
+    return value
 
 
 def parse_bhk(text: str | None) -> int:
@@ -137,7 +189,9 @@ def dict_to_property_row(
     listing_status: ListingStatus,
     city_meta: dict[str, str],
 ) -> PropertyCsvRow | None:
-    title = str(payload.get("title") or payload.get("propertyTitle") or payload.get("name") or "").strip()
+    title = normalize_listing_title(
+        str(payload.get("title") or payload.get("propertyTitle") or payload.get("name") or "").strip()
+    )
     if title.lower() in {"view property", "view details"}:
         return None
     if not title:
@@ -158,7 +212,10 @@ def dict_to_property_row(
     if locality and locality.lower() not in address.lower():
         address = f"{address}, {locality}" if address else locality
 
-    price = parse_price_inr(payload.get("price") or payload.get("rent") or payload.get("formattedPrice"))
+    price = parse_price_inr(
+        payload.get("price") or payload.get("rent") or payload.get("formattedPrice"),
+        listing_status=listing_status,
+    )
     if price is None:
         return None
 
@@ -195,6 +252,10 @@ def dict_to_property_row(
             break
 
     property_type = infer_property_type(str(payload.get("propertyType") or title))
+
+    resolved_city = infer_city_from_text(address, title, locality, fallback=city_meta["city"])
+    if resolved_city.lower() != city_meta["city"].lower():
+        city_meta = normalize_city(resolved_city.lower())
 
     latitude = payload.get("latitude")
     longitude = payload.get("longitude")
@@ -314,13 +375,28 @@ def parse_cards_from_html(
     for card in soup.select("[data-listing-id], [data-property-id], article, .property-card, .listing-card"):
         listing_id = card.get("data-listing-id") or card.get("data-property-id")
         title_el = card.select_one("h2, h3, .title, .property-title, a")
-        price_el = card.select_one("[data-price], .price, .rent, .amount")
         link_el = card.select_one("a[href]")
         if not title_el:
             continue
 
-        title = title_el.get_text(" ", strip=True)
-        price_text = price_el.get_text(" ", strip=True) if price_el else title
+        card_text = card.get_text(" ", strip=True)
+        title_match = LISTING_TITLE_PATTERN.search(card_text)
+        title = normalize_listing_title(title_match.group(0) if title_match else title_el.get_text(" ", strip=True))
+
+        price_el = card.select_one("[data-price], .price, .rent, .amount")
+        price_text = None
+        if price_el:
+            price_candidate = price_el.get_text(" ", strip=True)
+            price_match = INR_PRICE_PATTERN.search(price_candidate)
+            if price_match:
+                price_text = price_match.group(0)
+        if not price_text:
+            price_match = INR_PRICE_PATTERN.search(card_text)
+            if price_match:
+                price_text = price_match.group(0)
+        if not price_text:
+            continue
+
         href = link_el.get("href") if link_el else ""
         if href and href.startswith("/"):
             href = base_url.rstrip("/") + href
