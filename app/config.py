@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     data_dir: str = "data"
     openai_api_key: str | None = None
     openai_model: str = "gpt-4o-mini"
+    openai_enabled: bool = True
+    openai_match_rerank: bool = True
+    openai_match_rerank_limit: int = 20
+    openai_timeout_seconds: float = 20.0
     scrape_enabled: bool = True
     scrape_delay_seconds: float = 2.0
     scrape_playwright_enabled: bool = True

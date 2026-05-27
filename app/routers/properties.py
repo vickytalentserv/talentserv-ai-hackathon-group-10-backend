@@ -10,12 +10,15 @@ from app.models import Property, Requirement, User
 from app.schemas.match import PropertyMatchItem, PropertyMatchRequest, PropertyMatchResponse
 from app.schemas.property import PropertyListResponse, PropertyRead
 from app.schemas.requirement import ParsedRequirement
+from app.config import settings
+from app.services.llm_matching import LLMMatchingService
 from app.services.matching import MatchingService
 from app.services.parser import ParserService
 
 router = APIRouter(prefix="/api/v1", tags=["properties"])
 parser_service = ParserService()
 matching_service = MatchingService()
+llm_matching_service = LLMMatchingService()
 
 INTENT_TO_LISTING_STATUS = {
     "buy": "for_sale",
@@ -143,12 +146,35 @@ def match_properties(
 
     candidate_query = matching_service.build_candidate_query(parsed)
     properties = db.scalars(candidate_query).all()
+    match_relaxed = False
+
+    if not properties:
+        relaxed_query = matching_service.build_relaxed_candidate_query(parsed)
+        properties = db.scalars(relaxed_query).all()
+        match_relaxed = bool(properties)
+
     matches = matching_service.match(
         properties,
         parsed,
         min_score=payload.min_score,
         limit=payload.limit,
     )
+
+    if match_relaxed:
+        for match in matches:
+            match.reasons.insert(0, "Similar listing — exact rent/budget matches unavailable in database")
+
+    match_source = "database"
+    if match_relaxed:
+        match_source = "database+relaxed"
+    if settings.openai_match_rerank:
+        matches, llm_used = llm_matching_service.rerank(
+            parsed,
+            matches,
+            limit=settings.openai_match_rerank_limit,
+        )
+        if llm_used:
+            match_source = "database+llm"
 
     return PropertyMatchResponse(
         items=[
@@ -161,7 +187,8 @@ def match_properties(
         ],
         parsed=parsed,
         total=len(matches),
-        source="database",
+        source=match_source,
+        relaxed=match_relaxed,
     )
 
 

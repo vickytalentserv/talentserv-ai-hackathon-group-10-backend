@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from decimal import Decimal
 
-from sqlalchemy import Select, or_, select
+from sqlalchemy import Select, func, or_, select
 
 from app.models import Property
 from app.schemas.requirement import ParsedRequirement
@@ -27,10 +27,39 @@ PROPERTY_TYPE_ALIASES: dict[str, set[str]] = {
 
 CITY_ALIASES = {
     "bangalore": "bengaluru",
+    "bengaluru": "bangalore",
     "bombay": "mumbai",
+    "mumbai": "bombay",
 }
 
 CANDIDATE_LIMIT = 300
+
+
+def city_match_values(city: str) -> set[str]:
+    normalized = city.strip().lower()
+    values = {normalized}
+    alias = CITY_ALIASES.get(normalized)
+    if alias:
+        values.add(alias.lower())
+    return values
+
+
+def locality_search_terms(locality: str, city: str | None = None) -> list[str]:
+    cleaned = locality.strip()
+    if not cleaned:
+        return []
+
+    terms: list[str] = []
+    if city and cleaned.lower().endswith(city.lower()):
+        trimmed = cleaned[: -len(city)].strip(" ,")
+        if trimmed:
+            terms.append(trimmed)
+
+    first = cleaned.split()[0]
+    if len(first) > 2:
+        terms.append(first)
+    terms.append(cleaned)
+    return list(dict.fromkeys(term for term in terms if term))
 
 
 @dataclass
@@ -56,28 +85,31 @@ class MatchingService:
             has_filters = True
 
         if parsed.city:
-            city = parsed.city.strip()
-            alias = CITY_ALIASES.get(city.lower(), city)
-            pattern = f"%{city}%"
-            alias_pattern = f"%{alias}%"
-            query = query.where(
-                or_(
-                    Property.city.ilike(pattern),
-                    Property.city.ilike(alias_pattern),
-                    Property.address.ilike(pattern),
-                    Property.title.ilike(pattern),
+            city_values = city_match_values(parsed.city)
+            city_filters = [func.lower(Property.city).in_(sorted(city_values))]
+            for term in sorted(city_values, key=len, reverse=True):
+                pattern = f"%{term}%"
+                city_filters.extend(
+                    [
+                        Property.address.ilike(pattern),
+                        Property.title.ilike(pattern),
+                    ]
                 )
-            )
+            query = query.where(or_(*city_filters))
             has_filters = True
 
         if parsed.locality and self._should_apply_locality_filter(parsed):
-            locality_pattern = f"%{parsed.locality.strip()}%"
-            query = query.where(
-                or_(
-                    Property.address.ilike(locality_pattern),
-                    Property.title.ilike(locality_pattern),
+            locality_filters = []
+            for term in locality_search_terms(parsed.locality, parsed.city):
+                pattern = f"%{term.strip()}%"
+                locality_filters.extend(
+                    [
+                        Property.address.ilike(pattern),
+                        Property.title.ilike(pattern),
+                    ]
                 )
-            )
+            if locality_filters:
+                query = query.where(or_(*locality_filters))
             has_filters = True
 
         if parsed.property_type:
@@ -108,6 +140,16 @@ class MatchingService:
             return select(Property).order_by(Property.id.desc()).limit(CANDIDATE_LIMIT)
 
         return query.order_by(Property.id.desc()).limit(CANDIDATE_LIMIT)
+
+    def build_relaxed_candidate_query(self, parsed: ParsedRequirement) -> Select[tuple[Property]]:
+        relaxed = parsed.model_copy(
+            update={
+                "intent": None,
+                "budget_min": None,
+                "budget_max": None,
+            }
+        )
+        return self.build_candidate_query(relaxed)
 
     def _should_apply_locality_filter(self, parsed: ParsedRequirement) -> bool:
         if not parsed.locality:
@@ -254,8 +296,7 @@ class MatchingService:
 
         query = CITY_ALIASES.get(city.lower(), city.lower())
         record_city = CITY_ALIASES.get(property_record.city.lower(), property_record.city.lower())
-        haystack = f"{property_record.city} {property_record.address} {property_record.title}".lower()
-        if query == record_city or query in haystack:
+        if query == record_city or city.lower() == property_record.city.lower():
             return 1.0, f"City match: {property_record.city}"
         return 0.0, None
 

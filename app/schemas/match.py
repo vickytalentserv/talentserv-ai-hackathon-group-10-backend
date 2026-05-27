@@ -32,3 +32,4 @@ class PropertyMatchResponse(BaseModel):
     parsed: ParsedRequirement
     total: int
     source: str = "database"
+    relaxed: bool = False
