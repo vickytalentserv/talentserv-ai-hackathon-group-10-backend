@@ -4,6 +4,8 @@ import re
 from dataclasses import dataclass
 from decimal import Decimal
 
+from sqlalchemy import Select, or_, select
+
 from app.models import Property
 from app.schemas.requirement import ParsedRequirement
 
@@ -17,6 +19,8 @@ INTENT_TO_LISTING_STATUS = {
 PROPERTY_TYPE_ALIASES: dict[str, set[str]] = {
     "apartment": {"apartment", "condo", "flat"},
     "house": {"house", "townhome", "villa", "bungalow"},
+    "villa": {"villa", "house", "bungalow"},
+    "flat": {"flat", "apartment"},
     "condo": {"condo", "apartment", "flat"},
     "townhome": {"townhome", "house", "villa"},
 }
@@ -25,6 +29,8 @@ CITY_ALIASES = {
     "bangalore": "bengaluru",
     "bombay": "mumbai",
 }
+
+CANDIDATE_LIMIT = 300
 
 
 @dataclass
@@ -35,6 +41,89 @@ class PropertyMatchResult:
 
 
 class MatchingService:
+    def build_candidate_query(self, parsed: ParsedRequirement) -> Select[tuple[Property]]:
+        query = select(Property)
+        has_filters = False
+
+        if parsed.intent:
+            expected = INTENT_TO_LISTING_STATUS.get(parsed.intent)
+            if expected:
+                query = query.where(Property.listing_status == expected)
+                has_filters = True
+
+        if parsed.bedrooms is not None:
+            query = query.where(Property.bedrooms == parsed.bedrooms)
+            has_filters = True
+
+        if parsed.city:
+            city = parsed.city.strip()
+            alias = CITY_ALIASES.get(city.lower(), city)
+            pattern = f"%{city}%"
+            alias_pattern = f"%{alias}%"
+            query = query.where(
+                or_(
+                    Property.city.ilike(pattern),
+                    Property.city.ilike(alias_pattern),
+                    Property.address.ilike(pattern),
+                    Property.title.ilike(pattern),
+                )
+            )
+            has_filters = True
+
+        if parsed.locality and self._should_apply_locality_filter(parsed):
+            locality_pattern = f"%{parsed.locality.strip()}%"
+            query = query.where(
+                or_(
+                    Property.address.ilike(locality_pattern),
+                    Property.title.ilike(locality_pattern),
+                )
+            )
+            has_filters = True
+
+        if parsed.property_type:
+            aliases = PROPERTY_TYPE_ALIASES.get(
+                parsed.property_type.lower(),
+                {parsed.property_type.lower()},
+            )
+            query = query.where(Property.property_type.in_(sorted(aliases)))
+            has_filters = True
+
+        budget_min = parsed.budget_min
+        budget_max = parsed.budget_max
+        if parsed.budget_currency == "USD":
+            if budget_min is not None:
+                budget_min = budget_min * USD_TO_INR
+            if budget_max is not None:
+                budget_max = budget_max * USD_TO_INR
+
+        if budget_max is not None:
+            query = query.where(Property.price <= budget_max * Decimal("1.15"))
+            has_filters = True
+
+        if budget_min is not None:
+            query = query.where(Property.price >= budget_min * Decimal("0.85"))
+            has_filters = True
+
+        if not has_filters:
+            return select(Property).order_by(Property.id.desc()).limit(CANDIDATE_LIMIT)
+
+        return query.order_by(Property.id.desc()).limit(CANDIDATE_LIMIT)
+
+    def _should_apply_locality_filter(self, parsed: ParsedRequirement) -> bool:
+        if not parsed.locality:
+            return False
+
+        if not parsed.city:
+            return True
+
+        locality = parsed.locality.strip().lower()
+        city = parsed.city.strip().lower()
+        if locality == city:
+            return False
+
+        generic_suffixes = (" area", " region", " city", " limits", " vicinity")
+        return not any(locality == city + suffix for suffix in generic_suffixes)
+
     def match(
         self,
         properties: list[Property],

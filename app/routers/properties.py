@@ -141,7 +141,8 @@ def match_properties(
             )
         parsed = _requirement_to_parsed(requirement)
 
-    properties = db.scalars(select(Property)).all()
+    candidate_query = matching_service.build_candidate_query(parsed)
+    properties = db.scalars(candidate_query).all()
     matches = matching_service.match(
         properties,
         parsed,

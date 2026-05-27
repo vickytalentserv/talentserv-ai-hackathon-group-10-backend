@@ -71,3 +71,11 @@ def test_parses_k_suffix_budget(parser: ParserService) -> None:
     assert result.budget_max == pytest.approx(500_000)
     assert result.locality == "Whitefield"
     assert result.city == "Bengaluru"
+
+
+def test_parses_city_area_without_locality(parser: ParserService) -> None:
+    result = parser.parse("I want a 2BHK property in Pune area")
+
+    assert result.bedrooms == 2
+    assert result.city == "Pune"
+    assert result.locality is None

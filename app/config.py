@@ -14,6 +14,12 @@ class Settings(BaseSettings):
     data_dir: str = "data"
     openai_api_key: str | None = None
     openai_model: str = "gpt-4o-mini"
+    scrape_enabled: bool = True
+    scrape_delay_seconds: float = 2.0
+    scrape_playwright_enabled: bool = True
+    scrape_playwright_headless: bool = True
+    scrape_playwright_channel: str | None = None
+    scrape_playwright_timeout_ms: int = 45_000
 
     @property
     def cors_origin_list(self) -> list[str]:

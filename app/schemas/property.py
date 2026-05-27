@@ -14,6 +14,8 @@ class PropertyType(str, Enum):
     CONDO = "condo"
     APARTMENT = "apartment"
     TOWNHOME = "townhome"
+    VILLA = "villa"
+    FLAT = "flat"
 
 
 class PropertyCsvRow(BaseModel):
