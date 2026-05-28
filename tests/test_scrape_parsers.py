@@ -45,6 +45,27 @@ def test_parse_listing_links_from_html_magicbricks_style() -> None:
     assert "Hadapsar" in rows[0].title
 
 
+def test_parse_listing_links_from_html_magicbricks_sale_lakh_price() -> None:
+    html = """
+    <div>
+      <p>2 BHK flat for sale in Hadapsar Pune. You can buy this flat for 65 Lac.</p>
+      <a href="/propertyDetails/2-BHK-Flat-FOR-Sale-Hadapsar-in-Pune&id=456">View Property</a>
+    </div>
+    """
+    rows = parse_listing_links_from_html(
+        html,
+        source="magicbricks",
+        listing_status=ListingStatus.FOR_SALE,
+        city_meta=normalize_city("Pune"),
+        base_url="https://www.magicbricks.com",
+    )
+
+    assert len(rows) == 1
+    assert rows[0].bedrooms == 2
+    assert rows[0].price == Decimal("6500000")
+    assert "Hadapsar" in rows[0].title
+
+
 def test_dict_to_property_row_builds_valid_record() -> None:
     row = dict_to_property_row(
         {
