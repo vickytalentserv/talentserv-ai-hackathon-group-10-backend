@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -29,6 +30,13 @@ class Settings(BaseSettings):
     scrape_playwright_headless: bool = True
     scrape_playwright_channel: str | None = None
     scrape_playwright_timeout_ms: int = 45_000
+
+    @field_validator("scrape_playwright_channel", "ingest_api_key", mode="before")
+    @classmethod
+    def empty_string_to_none(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @property
     def cors_origin_list(self) -> list[str]:
