@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Iterator
+from typing import TYPE_CHECKING, Any, Iterator
 
-from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
+if TYPE_CHECKING:
+    from playwright.sync_api import Browser, BrowserContext, Page, Playwright
 
 STEALTH_INIT_SCRIPT = "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
 DEFAULT_USER_AGENT = (
@@ -49,6 +50,8 @@ class PlaywrightFetcher:
     def start(self) -> None:
         if self._browser is not None:
             return
+
+        from playwright.sync_api import sync_playwright
 
         self._playwright = sync_playwright().start()
         launch_kwargs: dict[str, Any] = {

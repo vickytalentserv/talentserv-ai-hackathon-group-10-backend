@@ -1,15 +1,5 @@
 {
-  "version": 2,
-  "builds": [
-    {
-      "src": "api/index.py",
-      "use": "@vercel/python"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "api/index.py"
-    }
-  ]
+  "installCommand": "pip install -r requirements-vercel.txt",
+  "buildCommand": "python -c \"print('Vercel build complete')\"",
+  "rewrites": [{ "source": "/(.*)", "destination": "/api/index" }]
 }
