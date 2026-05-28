@@ -16,6 +16,14 @@ LISTING_TITLE_PATTERN = re.compile(
     re.I,
 )
 INR_PRICE_PATTERN = re.compile(r"₹[\d,]+(?:\s*/\s*month)?", re.I)
+SALE_PRICE_TEXT_PATTERN = re.compile(
+    r"(?:₹\s*)?\d+(?:\.\d+)?\s*(?:lac|lakh|lacs|l|crore|cr)\b",
+    re.I,
+)
+RENT_PRICE_TEXT_PATTERN = re.compile(
+    r"₹[\d,]+(?:\s*/\s*month)?",
+    re.I,
+)
 
 CITY_META = {
     "pune": {
@@ -121,6 +129,22 @@ def parse_price_inr(
     if value <= 0 or not is_plausible_price(value, listing_status):
         return None
     return value
+
+
+def extract_price_text(text: str, *, listing_status: ListingStatus) -> str | None:
+    if listing_status == ListingStatus.FOR_SALE:
+        sale_match = SALE_PRICE_TEXT_PATTERN.search(text)
+        if sale_match:
+            return sale_match.group(0)
+
+        for match in INR_PRICE_PATTERN.finditer(text):
+            digits = re.sub(r"[^\d]", "", match.group(0))
+            if digits and Decimal(digits) >= MIN_SALE_INR:
+                return match.group(0)
+        return None
+
+    rent_match = RENT_PRICE_TEXT_PATTERN.search(text)
+    return rent_match.group(0) if rent_match else None
 
 
 def parse_bhk(text: str | None) -> int:
@@ -387,13 +411,9 @@ def parse_cards_from_html(
         price_text = None
         if price_el:
             price_candidate = price_el.get_text(" ", strip=True)
-            price_match = INR_PRICE_PATTERN.search(price_candidate)
-            if price_match:
-                price_text = price_match.group(0)
+            price_text = extract_price_text(price_candidate, listing_status=listing_status)
         if not price_text:
-            price_match = INR_PRICE_PATTERN.search(card_text)
-            if price_match:
-                price_text = price_match.group(0)
+            price_text = extract_price_text(card_text, listing_status=listing_status)
         if not price_text:
             continue
 
@@ -487,9 +507,9 @@ def parse_listing_links_from_html(
                 )
                 if title_match:
                     title = title_match.group(0).strip()
-            price_match = re.search(r"₹[\d,]+(?:\s*/\s*month)?", text)
-            if price_match:
-                price_text = price_match.group(0)
+            candidate_price = extract_price_text(text, listing_status=listing_status)
+            if candidate_price:
+                price_text = candidate_price
                 if title:
                     break
             container = container.parent
