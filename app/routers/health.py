@@ -6,6 +6,15 @@ from app.schemas import HealthResponse
 router = APIRouter(tags=["health"])
 
 
+@router.get("/")
+def root() -> dict[str, str]:
+    return {
+        "service": "Realist API",
+        "health": "/health",
+        "docs": "/docs",
+    }
+
+
 @router.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return HealthResponse(

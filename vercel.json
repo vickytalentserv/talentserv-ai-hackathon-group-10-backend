@@ -1,5 +1,3 @@
 {
-  "installCommand": "pip install -r requirements-vercel.txt",
-  "buildCommand": "python -c \"print('Vercel build complete')\"",
-  "rewrites": [{ "source": "/(.*)", "destination": "/api/index" }]
+  "installCommand": "pip install -r requirements-vercel.txt"
 }
