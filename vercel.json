@@ -1,3 +1,4 @@
 {
-  "installCommand": "pip install -r requirements-vercel.txt"
+  "installCommand": "pip install -r requirements-vercel.txt",
+  "rewrites": [{ "source": "/(.*)", "destination": "/api/index" }]
 }
